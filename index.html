@@ -102,20 +102,31 @@ summary::-webkit-details-marker { display: none; }
 .chip { display: inline-block; margin-top: 5px; font: 600 12px Barlow, sans-serif; padding: 2px 8px; border-radius: 999px; }
 .st-clear { background: var(--ok-bg); color: var(--ok); }
 .st-caution { background: var(--warn-bg); color: var(--warn); }
-.st-closed { background: var(--bad-bg); color: var(--bad); }
+.st-major { background: var(--bad-bg); color: var(--bad); }
+.st-closed { background: var(--bad); color: #fff; }
 .st-unknown { background: var(--line); color: var(--muted); }
 .roads { margin-top: 16px; }
 .roads h3 { font: 600 17px "Barlow Condensed", sans-serif; margin: 0 0 6px; }
-.route { border-left: 3px solid var(--line); padding: 2px 0 2px 12px; margin: 10px 0; }
-.route.st-closed, .route.st-caution, .route.st-clear, .route.st-unknown { background: none; color: var(--ink); }
-.route.st-closed { border-color: var(--bad); } .route.st-caution { border-color: var(--warn); }
-.route.st-clear { border-color: var(--ok); }
-.route-head { font-weight: 600; font-size: 15px; }
+.route { margin: 10px 0; }
+.route-head { font-weight: 600; font-size: 15px; margin-bottom: 5px; }
 .route-head span { font-weight: 500; color: var(--muted); }
-.route ul { margin: 4px 0 0; padding: 0; list-style: none; font-size: 14px; }
-.route li { margin: 4px 0; }
-.route li b { font-weight: 600; }
-.tag-closed { color: var(--bad); } .tag-warn { color: var(--warn); } .tag-plan { color: var(--muted); }
+/* segment rows, in driving order */
+.segs { list-style: none; margin: 0; padding: 0; }
+.seg { display: flex; gap: 8px; font-size: 14px; padding: 5px 8px; margin: 3px 0; border-radius: 5px;
+       border-left: 4px solid var(--faint); background: var(--panel); }
+.seg .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; background: var(--faint); }
+.seg .body { flex: 1; }
+.seg .lbl { font-weight: 600; }
+.seg .why { display: block; color: var(--muted); font-size: 13px; margin-top: 1px; }
+.seg.clear   { border-color: var(--ok); }   .seg.clear .dot   { background: var(--ok); }
+.seg.caution { border-color: var(--warn); background: var(--warn-bg); } .seg.caution .dot { background: var(--warn); }
+.seg.caution .why { color: var(--ink); }
+.seg.major   { border-color: var(--bad); background: var(--bad-bg); }  .seg.major .dot { background: var(--bad); }
+.seg.major .why { color: var(--ink); }
+.seg.closed  { border-color: var(--bad); background: var(--bad); color: #fff; font-weight: 700; }
+.seg.closed .dot { background: #fff; } .seg.closed .why { color: #fff; }
+.seg.unknown { border-color: var(--faint); } .seg.unknown .why { color: var(--muted); }
+.route-note { font-size: 12px; color: var(--muted); margin: 6px 0 0 2px; }
 .msg { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
 .msg.err { border-color: var(--warm); }
 footer { margin-top: 28px; font-size: 13px; color: var(--muted); }
@@ -330,52 +341,100 @@ function stripHtml(s) {
 
 // ---------- roads ----------
 
-const RANK = { clear: 0, caution: 1, unknown: 2, closed: 3 };
-const ST_TEXT = { clear: "Roads clear", caution: "Caution", unknown: "Roads not checked", closed: "Closure" };
+const RANK = { clear: 0, unknown: 1, caution: 2, major: 3, closed: 4 };
+const ST_TEXT = { clear: "Roads clear", caution: "Caution", major: "Major delays", unknown: "Roads not checked", closed: "Closure" };
+const CHIP_TEXT = { clear: "Roads clear", caution: "Caution", major: "Major delays", unknown: "Roads not checked", closed: "Closure ahead" };
 const SRC_FOR_PROV = { AB: "ab_events", BC: "bc_events" };
 
-function routeInfo(route) {
-  const R = state.roads, seen = new Set(), events = [], conds = [], missing = new Set();
-  for (const key of route.segments) {
+// A winter-road condition's colour from its primary text.
+function condSeverity(primary) {
+  const p = (primary || "").toLowerCase();
+  if (p === "closed") return "closed";
+  if (/ice|black ice|poor|snow packed|snow covered|drifting/.test(p)) return "major";
+  if (/partly|slush|loose snow|wet snow|frost|covered/.test(p)) return "caution";
+  return "clear"; // bare dry, bare wet, good
+}
+
+// An event's colour. Planned future work is informational, not a live hazard.
+function eventSeverity(e) {
+  if (e.planned_start) return "clear";
+  if (e.closed) return "closed";
+  if (String(e.severity || "").toLowerCase() === "major") return "major";
+  return "caution";
+}
+
+const worse = (a, b) => (RANK[b] > RANK[a] ? b : a);
+
+// Trim raw 511 text to a short reason. Keep the first sentence plus any speed limit.
+function shortReason(desc) {
+  let s = String(desc || "").replace(/\s+/g, " ").trim();
+  // First sentence, with the leading "<verb phrase> on " stripped (the type tag already names it).
+  let out = s.split(/\.\s/)[0].replace(/^[A-Za-z ]+? on /, "").trim();
+  const spd = s.match(/Speed Restriction:\s*(\d+ ?km\/?hr?)/i);
+  if (spd) out += ` (${spd[1]})`;
+  return out.length > 140 ? out.slice(0, 137) + "…" : out;
+}
+
+// Build the ordered per-segment view for one route.
+function routeSegments(route) {
+  const R = state.roads;
+  const rows = route.segments.map(key => {
     const seg = R.segments[key];
-    if (!seg) continue;
-    seg.prov.forEach(p => { const src = R.sources[SRC_FOR_PROV[p]]; if (!src || src.status !== "ok") missing.add(p); });
+    if (!seg) return null;
+    let status = "clear";
+    const missing = seg.prov.filter(p => { const s = R.sources[SRC_FOR_PROV[p]]; return !s || s.status !== "ok"; });
+    if (missing.length) status = "unknown";
+    const reasons = [];
+
     for (const e of seg.events) {
-      const id = e.prov + e.road + e.desc;
-      if (!seen.has(id)) { seen.add(id); events.push(e); }
+      const sev = eventSeverity(e);
+      status = worse(status, sev);
+      if (e.planned_start) continue; // don't list future work as a live reason
+      const tag = sev === "closed" ? "CLOSED" : sev === "major" ? "Major" : cap(e.type);
+      reasons.push({ sev, text: `${tag}: ${shortReason(e.desc)}` });
     }
     for (const c of seg.conditions) {
-      const id = "c" + c.road + c.where + c.primary;
-      if (!seen.has(id)) { seen.add(id); conds.push(c); }
+      const sev = condSeverity(c.primary);
+      status = worse(status, sev);
+      if (sev === "clear") continue; // green conditions need no line
+      const vis = c.visibility ? `, visibility ${String(c.visibility).toLowerCase()}` : "";
+      const extra = (c.secondary || []).filter(Boolean).join(", ");
+      reasons.push({ sev, text: `${c.primary}${c.where ? " — " + c.where : ""}${extra ? " (" + extra + ")" : ""}${vis}` });
     }
-  }
-  const active = events.filter(e => !e.planned_start);
-  let status = "clear";
-  if (active.some(e => e.closed) || conds.some(c => c.closed)) status = "closed";
-  else if (missing.size) status = "unknown";
-  else if (active.length || conds.some(c => c.poor)) status = "caution";
-  return { status, events, conds, missing };
+    reasons.sort((a, b) => RANK[b.sev] - RANK[a.sev]);
+    return { label: seg.label, status, reasons, missing };
+  }).filter(Boolean);
+
+  const overall = rows.reduce((a, r) => worse(a, r.status), "clear");
+  return { rows, overall };
 }
+
+function cap(s) { s = String(s || "event"); return s.charAt(0).toUpperCase() + s.slice(1); }
 
 function hillRoads(name) {
   if (!state.roads || !state.roads.hills || !state.roads.hills[name]) return null;
-  const routes = state.roads.hills[name].map(r => ({ ...r, info: routeInfo(r) }));
-  const best = routes.reduce((a, b) => (RANK[b.info.status] < RANK[a.info.status] ? b : a));
-  const closedOthers = routes.filter(r => r !== best && r.info.status === "closed").length;
+  const routes = state.roads.hills[name].map(r => ({ ...r, view: routeSegments(r) }));
+  const best = routes.reduce((a, b) => (RANK[b.view.overall] < RANK[a.view.overall] ? b : a));
+  const closedOthers = routes.filter(r => r !== best && r.view.overall === "closed").length;
   return { routes, best, closedOthers };
 }
 
 function chipHtml(hr) {
   if (!hr) return "";
-  let t = ST_TEXT[hr.best.info.status];
-  if (hr.routes.length > 1 && hr.best.info.status !== "closed") {
-    t += hr.closedOthers ? `, use ${hr.best.name}` : "";
-  }
-  return `<span class="chip st-${hr.best.info.status}">${esc(t)}</span>`;
+  let t = CHIP_TEXT[hr.best.view.overall];
+  if (hr.routes.length > 1 && hr.closedOthers && hr.best.view.overall !== "closed") t += `, use ${hr.best.name}`;
+  return `<span class="chip st-${hr.best.view.overall}">${esc(t)}</span>`;
 }
 
-function fmtDate(unix) {
-  return new Date(unix * 1000).toLocaleString("en-CA", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: TZ });
+function segRow(s) {
+  const cls = s.status;
+  let why = "";
+  if (s.status === "unknown") {
+    why = `<span class="why">${esc(s.missing.map(p => ({AB:"Alberta",BC:"BC"}[p])).join(" and "))} not checked: ${esc(missingReason(s.missing))}</span>`;
+  } else if (s.reasons.length) {
+    why = s.reasons.map(r => `<span class="why">${s.status === "closed" ? "* " : ""}${esc(r.text)}${s.status === "closed" ? " *" : ""}</span>`).join("");
+  }
+  return `<li class="seg ${cls}"><span class="dot"></span><span class="body"><span class="lbl">${esc(s.label)}</span>${why}</span></li>`;
 }
 
 function roadsHtml(name) {
@@ -384,26 +443,11 @@ function roadsHtml(name) {
   }
   const hr = hillRoads(name);
   if (!hr) return "";
-  const PROV = { AB: "Alberta", BC: "BC" };
   const blocks = hr.routes.map(r => {
-    const i = r.info, items = [];
-    i.events.forEach(e => {
-      const tag = e.planned_start ? `<b class="tag-plan">Planned from ${esc(fmtDate(e.planned_start))}</b>`
-        : e.closed ? '<b class="tag-closed">Closed</b>' : '<b class="tag-warn">' + esc(e.type) + "</b>";
-      items.push(`<li>${tag} ${esc(e.road)}: ${esc(e.desc)}</li>`);
-    });
-    i.conds.forEach(c => {
-      const extra = [...c.secondary, c.visibility ? "visibility " + String(c.visibility).toLowerCase() : ""].filter(Boolean).join(", ");
-      const cls = c.closed ? "tag-closed" : c.poor ? "tag-warn" : "tag-plan";
-      items.push(`<li><b class="${cls}">${esc(c.primary || "Condition")}</b> ${esc(c.road)}${c.where ? ", " + esc(c.where) : ""}${extra ? ". " + esc(extra) : ""}</li>`);
-    });
-    if (i.missing.size) {
-      items.push(`<li class="tag-plan">${[...i.missing].map(p => PROV[p]).join(" and ")} roads not checked: ${esc(missingReason([...i.missing]))}</li>`);
-    }
-    if (!items.length) items.push("<li>No reported events or poor conditions on this route.</li>");
-    return `<div class="route st-${i.status}"><div class="route-head">${esc(r.name)} <span>${ST_TEXT[i.status]}</span></div><ul>${items.join("")}</ul></div>`;
+    const rows = r.view.rows.map(segRow).join("");
+    return `<div class="route"><div class="route-head">${esc(r.name)} <span>${ST_TEXT[r.view.overall]}</span></div><ul class="segs">${rows}</ul></div>`;
   }).join("");
-  return `<div class="roads"><h3>Getting there from Hwy 1 and Hwy 22</h3>${blocks}</div>`;
+  return `<div class="roads"><h3>Getting there from Hwy 1 and Hwy 22</h3>${blocks}<div class="route-note">Segments listed in driving order from Cochrane. Green is clear; only trouble spots are described.</div></div>`;
 }
 
 function missingReason(provs) {
