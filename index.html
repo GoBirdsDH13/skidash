@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SkiDash</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎿</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #eef3f7;
+  --panel: #ffffff;
+  --ink: #16263a;
+  --muted: #5d6f82;
+  --faint: #a9b7c4;
+  --line: #d7e0e8;
+  --s0: #c3ced8;   /* no snow */
+  --s1: #6fb1d9;   /* a few cm */
+  --s2: #2f7fc1;   /* solid refresh */
+  --s3: #6a3fb5;   /* dump */
+  --warm: #c2452d;
+  --cold: #2f7fc1;
+  --focus: #2f7fc1;
+  --ok: #1e7a45; --ok-bg: #dcf1e4; --warn: #9a5b00; --warn-bg: #fbecd2; --bad: #b3261e; --bad-bg: #f9dedb;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1a26; --panel: #16263a; --ink: #e8eff5; --muted: #93a6b8;
+    --faint: #4e6377; --line: #253a50; --s0: #3a4f63; --s1: #5fa8d6;
+    --s2: #4f9de6; --s3: #a584e8; --warm: #f07a61; --cold: #7fbfff; --focus: #7fbfff;
+    --ok: #7fd8a2; --ok-bg: #173a2a; --warn: #f2b863; --warn-bg: #3d2e14; --bad: #ff8a80; --bad-bg: #4a1f1c;
+  }
+}
+*, *::before, *::after { box-sizing: inherit; }
+html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 400 16px/1.45 Barlow, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 980px; margin: 0 auto; padding: 20px 16px 48px; }
+
+header { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 20px; margin-bottom: 18px; }
+h1 {
+  font: 700 44px/0.9 "Barlow Condensed", "Arial Narrow", sans-serif;
+  letter-spacing: -0.5px; margin: 0;
+}
+.status { color: var(--muted); font-size: 14px; flex: 1 1 200px; }
+.controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
+.seg button, .btn {
+  font: 600 14px Barlow, sans-serif; color: var(--ink); background: transparent;
+  border: 0; padding: 7px 12px; cursor: pointer;
+}
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
+.btn { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+button:focus-visible, summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* column header */
+.cols, summary {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.6fr) repeat(3, minmax(64px, 1fr)) minmax(92px, 1.1fr);
+  align-items: center; gap: 8px;
+}
+.cols { padding: 0 16px 6px; color: var(--muted); font-size: 13px; }
+.cols span:not(:first-child) { text-align: right; }
+
+.hill { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; }
+summary { list-style: none; cursor: pointer; padding: 12px 16px; }
+summary::-webkit-details-marker { display: none; }
+.name { font: 700 22px/1.05 "Barlow Condensed", sans-serif; }
+.name small { display: block; font: 400 13px Barlow, sans-serif; color: var(--muted); margin-top: 2px; }
+.num { text-align: right; font: 700 30px/1 "Barlow Condensed", sans-serif; font-variant-numeric: tabular-nums; }
+.num i { font-style: normal; font-size: 14px; font-weight: 600; color: var(--muted); margin-left: 1px; }
+.now { text-align: right; font-size: 14px; color: var(--muted); line-height: 1.25; }
+.now b { display: block; font: 600 20px "Barlow Condensed", sans-serif; color: var(--ink); }
+.sorted { box-shadow: inset 0 -3px 0 currentColor; padding-bottom: 2px; }
+
+.detail { padding: 4px 16px 16px; border-top: 1px solid var(--line); }
+.elev { display: flex; flex-wrap: wrap; gap: 6px 28px; font-size: 14px; color: var(--muted); margin: 12px 0 4px; }
+.elev b { color: var(--ink); font-weight: 600; }
+
+/* 14-day strip: bar height encodes cm, number on top */
+.strip-scroll { overflow-x: auto; margin-top: 10px; }
+.strip { display: grid; grid-template-columns: repeat(14, minmax(44px, 1fr)); gap: 4px; min-width: 640px; }
+.day { text-align: center; font-size: 12px; color: var(--muted); }
+.day.weekend .dow { color: var(--ink); font-weight: 600; }
+.barbox { height: 84px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; margin: 4px 0; }
+.bar { width: 70%; border-radius: 3px 3px 0 0; min-height: 2px; }
+.cm { font: 700 17px "Barlow Condensed", sans-serif; color: var(--ink); margin-bottom: 2px; }
+.cm.zero { color: var(--faint); font-weight: 500; }
+.hi { color: var(--warm); } .lo { color: var(--cold); }
+.gust { color: var(--muted); font-size: 11px; }
+.note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+.chip { display: inline-block; margin-top: 5px; font: 600 12px Barlow, sans-serif; padding: 2px 8px; border-radius: 999px; }
+.st-clear { background: var(--ok-bg); color: var(--ok); }
+.st-caution { background: var(--warn-bg); color: var(--warn); }
+.st-closed { background: var(--bad-bg); color: var(--bad); }
+.st-unknown { background: var(--line); color: var(--muted); }
+.roads { margin-top: 16px; }
+.roads h3 { font: 600 17px "Barlow Condensed", sans-serif; margin: 0 0 6px; }
+.route { border-left: 3px solid var(--line); padding: 2px 0 2px 12px; margin: 10px 0; }
+.route.st-closed, .route.st-caution, .route.st-clear, .route.st-unknown { background: none; color: var(--ink); }
+.route.st-closed { border-color: var(--bad); } .route.st-caution { border-color: var(--warn); }
+.route.st-clear { border-color: var(--ok); }
+.route-head { font-weight: 600; font-size: 15px; }
+.route-head span { font-weight: 500; color: var(--muted); }
+.route ul { margin: 4px 0 0; padding: 0; list-style: none; font-size: 14px; }
+.route li { margin: 4px 0; }
+.route li b { font-weight: 600; }
+.tag-closed { color: var(--bad); } .tag-warn { color: var(--warn); } .tag-plan { color: var(--muted); }
+.msg { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+.msg.err { border-color: var(--warm); }
+footer { margin-top: 28px; font-size: 13px; color: var(--muted); }
+footer a { color: inherit; }
+
+@media (max-width: 620px) {
+  h1 { font-size: 36px; }
+  .cols, summary { grid-template-columns: minmax(0, 1.5fr) repeat(3, minmax(44px, 1fr)); }
+  .cols span:last-child, summary .now { display: none; }
+  .num { font-size: 24px; }
+  .name { font-size: 20px; }
+  .detail .nowline { display: block; }
+}
+.nowline { display: none; font-size: 14px; margin-top: 10px; }
+@media (prefers-reduced-motion: no-preference) {
+  .bar { transition: height .4s ease-out; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>SkiDash</h1>
+    <div class="status" id="status" role="status">Loading forecast…</div>
+    <div class="controls">
+      <div class="seg" role="group" aria-label="Sort hills by">
+        <button type="button" data-sort="past72">Last 72h</button>
+        <button type="button" data-sort="next72">Next 72h</button>
+        <button type="button" data-sort="next7d" aria-pressed="true">Next 7 days</button>
+      </div>
+      <button type="button" class="btn" id="refresh">Refresh</button>
+    </div>
+  </header>
+
+  <div class="cols" aria-hidden="true">
+    <span>Hill</span><span>Last 72h</span><span>Next 72h</span><span>Next 7 days</span><span>Summit now</span>
+  </div>
+  <div id="list"></div>
+
+  <footer>
+    Snowfall is model forecast data at summit elevation, not resort-reported snow stake numbers.
+    Tap a hill for the 14-day outlook and road details. Road status covers highways from the Hwy 1 and Hwy 22 interchange; hill access roads are not reported by the provinces.
+    Weather: <a href="https://open-meteo.com/">Open-Meteo</a>. Roads: <a href="https://511.alberta.ca/">511 Alberta</a>, <a href="https://www.drivebc.ca/">DriveBC</a>.
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+// Weather points use each hill's coordinates with base and summit elevation for downscaling.
+const HILLS = [
+  { name: "Nakiska",     lat: 50.9425, lon: -115.1517, base: 1525, summit: 2260 },
+  { name: "Norquay",     lat: 51.2050, lon: -115.6060, base: 1630, summit: 2133 },
+  { name: "Lake Louise", lat: 51.4419, lon: -116.1773, base: 1646, summit: 2637 },
+  { name: "Sunshine",    lat: 51.0784, lon: -115.7616, base: 2159, summit: 2730 },
+  { name: "Fernie",      lat: 49.4627, lon: -115.0876, base: 1068, summit: 2134 },
+  { name: "Panorama",    lat: 50.4602, lon: -116.2378, base: 1160, summit: 2380 },
+  { name: "WinSport",    lat: 51.0823, lon: -114.2167, base: 1245, summit: null },
+];
+
+const TZ = "America/Edmonton";
+const AUTO_REFRESH_MS = 30 * 60 * 1000;
+const WMO = {
+  0: "Clear", 1: "Mostly clear", 2: "Partly cloudy", 3: "Overcast", 45: "Fog", 48: "Freezing fog",
+  51: "Light drizzle", 53: "Drizzle", 55: "Heavy drizzle", 56: "Freezing drizzle", 57: "Freezing drizzle",
+  61: "Light rain", 63: "Rain", 65: "Heavy rain", 66: "Freezing rain", 67: "Freezing rain",
+  71: "Light snow", 73: "Snow", 75: "Heavy snow", 77: "Snow grains",
+  80: "Rain showers", 81: "Rain showers", 82: "Heavy showers", 85: "Snow showers", 86: "Heavy snow showers",
+  95: "Thunderstorm", 96: "Thunderstorm", 99: "Thunderstorm",
+};
+
+let state = { hills: null, sort: "next7d", open: new Set(), fetchedAt: null, roads: null, roadsErr: null };
+
+// ---------- data ----------
+
+function buildUrl() {
+  const pts = [];
+  HILLS.forEach((h, i) => {
+    pts.push({ i, kind: "base", lat: h.lat, lon: h.lon, elev: h.base });
+    if (h.summit) pts.push({ i, kind: "summit", lat: h.lat, lon: h.lon, elev: h.summit });
+  });
+  const q = new URLSearchParams({
+    latitude: pts.map(p => p.lat).join(","),
+    longitude: pts.map(p => p.lon).join(","),
+    elevation: pts.map(p => p.elev).join(","),
+    current: "temperature_2m,wind_speed_10m,weather_code",
+    hourly: "snowfall",
+    daily: "snowfall_sum,temperature_2m_max,temperature_2m_min,wind_gusts_10m_max",
+    past_days: "3",
+    forecast_days: "14",
+    timezone: TZ,
+  });
+  return { url: "https://api.open-meteo.com/v1/forecast?" + q.toString(), pts };
+}
+
+// Open-Meteo hourly snowfall at time T is the sum over the preceding hour.
+function sumRange(arr, from, to) {
+  let s = 0;
+  for (let k = Math.max(0, from); k <= Math.min(arr.length - 1, to); k++) {
+    if (typeof arr[k] === "number") s += arr[k];
+  }
+  return Math.round(s * 100) / 100; // strip float noise before display rounding
+}
+
+function parsePoint(j) {
+  const cur = j.current || {};
+  const hTime = (j.hourly && j.hourly.time) || [];
+  const hSnow = (j.hourly && j.hourly.snowfall) || [];
+  // Index of the last completed hour at or before "now" (local time strings sort correctly).
+  const nowHour = (cur.time || "").slice(0, 13) + ":00";
+  let iNow = -1;
+  for (let k = 0; k < hTime.length; k++) { if (hTime[k] <= nowHour) iNow = k; else break; }
+
+  const d = j.daily || {};
+  const dt = d.time || [];
+  // past_days=3, so today's date is at index 3; the strip starts today.
+  const todayStr = (cur.time || "").slice(0, 10);
+  let iToday = dt.indexOf(todayStr);
+  if (iToday < 0) iToday = 3;
+  const sl = a => (a || []).slice(iToday, iToday + 14);
+
+  return {
+    temp: cur.temperature_2m, wind: cur.wind_speed_10m, code: cur.weather_code,
+    time: cur.time,
+    past72: iNow >= 0 ? sumRange(hSnow, iNow - 71, iNow) : null,
+    next72: iNow >= 0 ? sumRange(hSnow, iNow + 1, iNow + 72) : null,
+    next7d: iNow >= 0 ? sumRange(hSnow, iNow + 1, iNow + 168) : null,
+    strip: {
+      dates: sl(dt), snow: sl(d.snowfall_sum), tmax: sl(d.temperature_2m_max),
+      tmin: sl(d.temperature_2m_min), gust: sl(d.wind_gusts_10m_max),
+    },
+  };
+}
+
+async function loadRoads() {
+  try {
+    const r = await fetch("roads.json", { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    state.roads = await r.json();
+    state.roadsErr = null;
+  } catch (e) {
+    state.roadsErr = e.message;
+  }
+}
+
+async function load() {
+  setStatus("Loading forecast…");
+  const roadsDone = loadRoads();
+  const { url, pts } = buildUrl();
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error("Open-Meteo returned HTTP " + r.status);
+    let body = await r.json();
+    if (!Array.isArray(body)) body = [body];
+    if (body.length !== pts.length) throw new Error("Expected " + pts.length + " locations, got " + body.length);
+
+    const hills = HILLS.map(h => ({ ...h, baseW: null, summitW: null }));
+    body.forEach((j, k) => {
+      const p = pts[k];
+      hills[p.i][p.kind + "W"] = parsePoint(j);
+    });
+    state.hills = hills;
+    state.fetchedAt = new Date();
+    await roadsDone;
+    render();
+  } catch (e) {
+    const had = !!state.hills;
+    setStatus((had ? "Refresh failed, showing earlier data. " : "") + "Weather unavailable: " + e.message);
+    if (!had) {
+      document.getElementById("list").innerHTML =
+        '<div class="msg err">Could not load the forecast. Check your connection and press Refresh.</div>';
+    }
+  }
+}
+
+// ---------- render ----------
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt0 = v => (typeof v === "number" ? Math.round(v).toString() : "–");
+function snowColor(cm) {
+  if (typeof cm !== "number" || cm < 0.5) return "var(--s0)";
+  if (cm < 5) return "var(--s1)";
+  if (cm < 15) return "var(--s2)";
+  return "var(--s3)";
+}
+function setStatus(t) { document.getElementById("status").textContent = t; }
+
+function snowCell(v, key) {
+  const cls = state.sort === key ? " sorted" : "";
+  return `<span class="num"><span class="${cls.trim()}" style="color:${snowColor(v)}">${fmt0(v)}</span><i>cm</i></span>`;
+}
+
+function stripHtml(s) {
+  const max = Math.max(10, ...s.snow.filter(v => typeof v === "number"));
+  return s.dates.map((d, k) => {
+    const date = new Date(d + "T12:00:00");
+    const dow = date.toLocaleDateString("en-CA", { weekday: "short" });
+    const dom = date.getDate();
+    const weekend = date.getDay() === 0 || date.getDay() === 6;
+    const cm = s.snow[k];
+    const h = typeof cm === "number" ? Math.max(2, Math.round((cm / max) * 60)) : 2;
+    const zero = typeof cm !== "number" || cm < 0.5;
+    return `<div class="day${weekend ? " weekend" : ""}">
+      <div class="dow">${k === 0 ? "Today" : esc(dow)}</div><div>${dom}</div>
+      <div class="barbox"><div class="cm${zero ? " zero" : ""}">${zero ? "0" : fmt0(cm)}</div>
+        <div class="bar" style="height:${h}px;background:${snowColor(cm)}"></div></div>
+      <div class="hi">${fmt0(s.tmax[k])}°</div><div class="lo">${fmt0(s.tmin[k])}°</div>
+      <div class="gust" title="Max gust km/h">${fmt0(s.gust[k])}</div>
+    </div>`;
+  }).join("");
+}
+
+// ---------- roads ----------
+
+const RANK = { clear: 0, caution: 1, unknown: 2, closed: 3 };
+const ST_TEXT = { clear: "Roads clear", caution: "Caution", unknown: "Roads not checked", closed: "Closure" };
+const SRC_FOR_PROV = { AB: "ab_events", BC: "bc_events" };
+
+function routeInfo(route) {
+  const R = state.roads, seen = new Set(), events = [], conds = [], missing = new Set();
+  for (const key of route.segments) {
+    const seg = R.segments[key];
+    if (!seg) continue;
+    seg.prov.forEach(p => { const src = R.sources[SRC_FOR_PROV[p]]; if (!src || src.status !== "ok") missing.add(p); });
+    for (const e of seg.events) {
+      const id = e.prov + e.road + e.desc;
+      if (!seen.has(id)) { seen.add(id); events.push(e); }
+    }
+    for (const c of seg.conditions) {
+      const id = "c" + c.road + c.where + c.primary;
+      if (!seen.has(id)) { seen.add(id); conds.push(c); }
+    }
+  }
+  const active = events.filter(e => !e.planned_start);
+  let status = "clear";
+  if (active.some(e => e.closed) || conds.some(c => c.closed)) status = "closed";
+  else if (missing.size) status = "unknown";
+  else if (active.length || conds.some(c => c.poor)) status = "caution";
+  return { status, events, conds, missing };
+}
+
+function hillRoads(name) {
+  if (!state.roads || !state.roads.hills || !state.roads.hills[name]) return null;
+  const routes = state.roads.hills[name].map(r => ({ ...r, info: routeInfo(r) }));
+  const best = routes.reduce((a, b) => (RANK[b.info.status] < RANK[a.info.status] ? b : a));
+  const closedOthers = routes.filter(r => r !== best && r.info.status === "closed").length;
+  return { routes, best, closedOthers };
+}
+
+function chipHtml(hr) {
+  if (!hr) return "";
+  let t = ST_TEXT[hr.best.info.status];
+  if (hr.routes.length > 1 && hr.best.info.status !== "closed") {
+    t += hr.closedOthers ? `, use ${hr.best.name}` : "";
+  }
+  return `<span class="chip st-${hr.best.info.status}">${esc(t)}</span>`;
+}
+
+function fmtDate(unix) {
+  return new Date(unix * 1000).toLocaleString("en-CA", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: TZ });
+}
+
+function roadsHtml(name) {
+  if (state.roadsErr || !state.roads) {
+    return `<div class="roads"><h3>Getting there</h3><div class="note">Road data unavailable${state.roadsErr ? " (" + esc(state.roadsErr) + ")" : ""}.</div></div>`;
+  }
+  const hr = hillRoads(name);
+  if (!hr) return "";
+  const PROV = { AB: "Alberta", BC: "BC" };
+  const blocks = hr.routes.map(r => {
+    const i = r.info, items = [];
+    i.events.forEach(e => {
+      const tag = e.planned_start ? `<b class="tag-plan">Planned from ${esc(fmtDate(e.planned_start))}</b>`
+        : e.closed ? '<b class="tag-closed">Closed</b>' : '<b class="tag-warn">' + esc(e.type) + "</b>";
+      items.push(`<li>${tag} ${esc(e.road)}: ${esc(e.desc)}</li>`);
+    });
+    i.conds.forEach(c => {
+      const extra = [...c.secondary, c.visibility ? "visibility " + String(c.visibility).toLowerCase() : ""].filter(Boolean).join(", ");
+      const cls = c.closed ? "tag-closed" : c.poor ? "tag-warn" : "tag-plan";
+      items.push(`<li><b class="${cls}">${esc(c.primary || "Condition")}</b> ${esc(c.road)}${c.where ? ", " + esc(c.where) : ""}${extra ? ". " + esc(extra) : ""}</li>`);
+    });
+    if (i.missing.size) {
+      items.push(`<li class="tag-plan">${[...i.missing].map(p => PROV[p]).join(" and ")} roads not checked: ${esc(missingReason([...i.missing]))}</li>`);
+    }
+    if (!items.length) items.push("<li>No reported events or poor conditions on this route.</li>");
+    return `<div class="route st-${i.status}"><div class="route-head">${esc(r.name)} <span>${ST_TEXT[i.status]}</span></div><ul>${items.join("")}</ul></div>`;
+  }).join("");
+  return `<div class="roads"><h3>Getting there from Hwy 1 and Hwy 22</h3>${blocks}</div>`;
+}
+
+function missingReason(provs) {
+  const S = state.roads.sources;
+  return provs.map(p => {
+    const s = S[SRC_FOR_PROV[p]] || {};
+    return s.status === "no_key" ? "Alberta 511 key not set up yet" : (s.message || "source unavailable");
+  }).join("; ");
+}
+
+function hillHtml(h) {
+  const top = h.summitW || h.baseW;
+  const elevTop = h.summit || h.base;
+  const nowTxt = top ? `${fmt0(top.temp)}°C` : "–";
+  const cond = top && WMO[top.code] ? WMO[top.code] : "";
+  const wind = top && typeof top.wind === "number" ? `${fmt0(top.wind)} km/h wind` : "";
+  const elevLine = (label, w, m) => w
+    ? `<span>${label} ${m} m: <b>${fmt0(w.temp)}°C</b>, ${fmt0(w.wind)} km/h, 72h ${fmt0(w.past72)} cm, next 7d ${fmt0(w.next7d)} cm</span>`
+    : "";
+  return `<details class="hill" data-name="${esc(h.name)}"${state.open.has(h.name) ? " open" : ""}>
+    <summary>
+      <span class="name">${esc(h.name)}<small>${h.summit ? `${h.base}–${h.summit} m` : `${h.base} m`}</small>${chipHtml(hillRoads(h.name))}</span>
+      ${snowCell(top && top.past72, "past72")}
+      ${snowCell(top && top.next72, "next72")}
+      ${snowCell(top && top.next7d, "next7d")}
+      <span class="now"><b>${nowTxt}</b>${esc(cond)}${cond && wind ? "<br>" : ""}${esc(wind)}</span>
+    </summary>
+    <div class="detail">
+      <div class="nowline">Summit now: <b>${nowTxt}</b> ${esc(cond)}${wind ? ", " + esc(wind) : ""}</div>
+      <div class="elev">${elevLine("Base", h.baseW, h.base)}${elevLine("Summit", h.summitW, h.summit)}</div>
+      ${top ? `<div class="strip-scroll"><div class="strip">${stripHtml(top.strip)}</div></div>` : ""}
+      ${roadsHtml(h.name)}
+      <div class="note">Daily snowfall (cm), high and low (°C), max gust (km/h) at ${elevTop} m.${h.summit ? "" : " WinSport snow is mostly man-made, so natural snowfall matters less here."}</div>
+    </div>
+  </details>`;
+}
+
+function render() {
+  if (!state.hills) return;
+  const key = state.sort;
+  const val = h => { const w = h.summitW || h.baseW; return w && typeof w[key] === "number" ? w[key] : -1; };
+  const sorted = [...state.hills].sort((a, b) => val(b) - val(a));
+  document.getElementById("list").innerHTML = sorted.map(hillHtml).join("");
+  document.querySelectorAll("details.hill").forEach(el => {
+    el.addEventListener("toggle", () => {
+      el.open ? state.open.add(el.dataset.name) : state.open.delete(el.dataset.name);
+    });
+  });
+  const t = state.fetchedAt.toLocaleTimeString("en-CA", { hour: "2-digit", minute: "2-digit", hour12: false });
+  let roadsTxt = "";
+  if (state.roads && state.roads.generated) {
+    const age = Math.round((Date.now() - Date.parse(state.roads.generated)) / 60000);
+    roadsTxt = age > 60 ? ` Road data is ${age} min old.` : ` Roads checked ${age} min ago.`;
+  } else if (state.roadsErr) {
+    roadsTxt = " Road data unavailable.";
+  }
+  setStatus(`Sorted by ${ {past72: "last 72 hours", next72: "next 72 hours", next7d: "next 7 days"}[key] } at summit. Updated ${t}.${roadsTxt}`);
+}
+
+// ---------- wiring ----------
+
+document.querySelectorAll("[data-sort]").forEach(b => {
+  b.addEventListener("click", () => {
+    state.sort = b.dataset.sort;
+    document.querySelectorAll("[data-sort]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    render();
+  });
+});
+document.getElementById("refresh").addEventListener("click", load);
+setInterval(() => { if (!document.hidden) load(); }, AUTO_REFRESH_MS);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && state.fetchedAt && Date.now() - state.fetchedAt > AUTO_REFRESH_MS) load();
+});
+load();
+</script>
+</body>
+</html>
