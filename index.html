@@ -156,6 +156,7 @@ footer a { color: inherit; }
         <button type="button" data-sort="past72">Last 72h</button>
         <button type="button" data-sort="next72">Next 72h</button>
         <button type="button" data-sort="next7d" aria-pressed="true">Next 7 days</button>
+        <button type="button" data-sort="base">Base depth</button>
       </div>
       <button type="button" class="btn" id="refresh">Refresh</button>
     </div>
@@ -168,7 +169,7 @@ footer a { color: inherit; }
 
   <footer>
     Snowfall is model forecast data at summit elevation, not resort-reported snow stake numbers.
-    Tap a hill for the 14-day outlook and road details. Road status covers highways from the Hwy 1 and Hwy 22 interchange; hill access roads are not reported by the provinces.
+    Tap a hill for the 14-day outlook and road details.  highways on each hill's route from Cochrane; hill access roads are not reported by the provinces.
     Weather: <a href="https://open-meteo.com/">Open-Meteo</a>. Roads: <a href="https://511.alberta.ca/">511 Alberta</a>, <a href="https://www.drivebc.ca/">DriveBC</a>.
   </footer>
 </div>
@@ -184,6 +185,8 @@ const HILLS = [
   { name: "Sunshine",    lat: 51.0784, lon: -115.7616, base: 2159, summit: 2730 },
   { name: "Fernie",      lat: 49.4627, lon: -115.0876, base: 1068, summit: 2134 },
   { name: "Panorama",    lat: 50.4602, lon: -116.2378, base: 1160, summit: 2380 },
+  { name: "Marmot Basin", lat: 52.8000, lon: -118.0833, base: 1698, summit: 2612 },
+  { name: "Nitehawk",    lat: 55.0562, lon: -118.8531, base: 540,  summit: 675 },
   { name: "WinSport",    lat: 51.0823, lon: -114.2167, base: 1245, summit: null },
 ];
 
@@ -198,7 +201,7 @@ const WMO = {
   95: "Thunderstorm", 96: "Thunderstorm", 99: "Thunderstorm",
 };
 
-let state = { hills: null, sort: "next7d", open: new Set(), fetchedAt: null, roads: null, roadsErr: null };
+let state = { hills: null, sort: "next7d", open: new Set(), fetchedAt: null, roads: null, roadsErr: null, snow: null };
 
 // ---------- data ----------
 
@@ -261,6 +264,13 @@ function parsePoint(j) {
   };
 }
 
+async function loadSnow() {
+  try {
+    const r = await fetch("snow.json", { cache: "no-store" });
+    if (r.ok) state.snow = await r.json();
+  } catch (e) { /* base depth is optional; ignore */ }
+}
+
 async function loadRoads() {
   try {
     const r = await fetch("roads.json", { cache: "no-store" });
@@ -274,7 +284,7 @@ async function loadRoads() {
 
 async function load() {
   setStatus("Loading forecast…");
-  const roadsDone = loadRoads();
+  const roadsDone = loadRoads(), snowDone = loadSnow();
   const { url, pts } = buildUrl();
   try {
     const r = await fetch(url);
@@ -290,7 +300,7 @@ async function load() {
     });
     state.hills = hills;
     state.fetchedAt = new Date();
-    await roadsDone;
+    await Promise.all([roadsDone, snowDone]);
     render();
   } catch (e) {
     const had = !!state.hills;
@@ -447,7 +457,7 @@ function roadsHtml(name) {
     const rows = r.view.rows.map(segRow).join("");
     return `<div class="route"><div class="route-head">${esc(r.name)} <span>${ST_TEXT[r.view.overall]}</span></div><ul class="segs">${rows}</ul></div>`;
   }).join("");
-  return `<div class="roads"><h3>Getting there from Hwy 1 and Hwy 22</h3>${blocks}<div class="route-note">Segments listed in driving order from Cochrane. Green is clear; only trouble spots are described.</div></div>`;
+  return `<div class="roads"><h3>Getting there from Cochrane</h3>${blocks}<div class="route-note">Segments listed in driving order from Cochrane. Green is clear; only trouble spots are described.</div></div>`;
 }
 
 function missingReason(provs) {
@@ -456,6 +466,19 @@ function missingReason(provs) {
     const s = S[SRC_FOR_PROV[p]] || {};
     return s.status === "no_key" ? "Alberta 511 key not set up yet" : (s.message || "source unavailable");
   }).join("; ");
+}
+
+function baseLine(name) {
+  const r = state.snow && state.snow.resorts && state.snow.resorts[name];
+  if (!r) return "";
+  if (typeof r.base_cm === "number") {
+    const bits = [`<b>${fmt0(r.base_cm)} cm</b> base`];
+    if (typeof r.summit_cm === "number") bits.push(`${fmt0(r.summit_cm)} cm summit`);
+    if (r.surface) bits.push(esc(r.surface));
+    return `<div class="elev"><span>Snow depth: ${bits.join(", ")} <small style="color:var(--faint)">(resort-reported, OnTheSnow)</small></span></div>`;
+  }
+  const why = r.status && /clos/i.test(r.status) ? "resort closed" : "not reported";
+  return `<div class="elev"><span style="color:var(--muted)">Snow depth: ${esc(why)}</span></div>`;
 }
 
 function hillHtml(h) {
@@ -479,6 +502,7 @@ function hillHtml(h) {
       <div class="nowline">Summit now: <b>${nowTxt}</b> ${esc(cond)}${wind ? ", " + esc(wind) : ""}</div>
       <div class="elev">${elevLine("Base", h.baseW, h.base)}${elevLine("Summit", h.summitW, h.summit)}</div>
       ${top ? `<div class="strip-scroll"><div class="strip">${stripHtml(top.strip)}</div></div>` : ""}
+      ${baseLine(h.name)}
       ${roadsHtml(h.name)}
       <div class="note">Daily snowfall (cm), high and low (°C), max gust (km/h) at ${elevTop} m.${h.summit ? "" : " WinSport snow is mostly man-made, so natural snowfall matters less here."}</div>
     </div>
@@ -488,7 +512,8 @@ function hillHtml(h) {
 function render() {
   if (!state.hills) return;
   const key = state.sort;
-  const val = h => { const w = h.summitW || h.baseW; return w && typeof w[key] === "number" ? w[key] : -1; };
+  const baseCm = name => { const r = state.snow && state.snow.resorts && state.snow.resorts[name]; return r && typeof r.base_cm === "number" ? r.base_cm : -1; };
+  const val = key === "base" ? (h => baseCm(h.name)) : (h => { const w = h.summitW || h.baseW; return w && typeof w[key] === "number" ? w[key] : -1; });
   const sorted = [...state.hills].sort((a, b) => val(b) - val(a));
   document.getElementById("list").innerHTML = sorted.map(hillHtml).join("");
   document.querySelectorAll("details.hill").forEach(el => {
@@ -504,7 +529,8 @@ function render() {
   } else if (state.roadsErr) {
     roadsTxt = " Road data unavailable.";
   }
-  setStatus(`Sorted by ${ {past72: "last 72 hours", next72: "next 72 hours", next7d: "next 7 days"}[key] } at summit. Updated ${t}.${roadsTxt}`);
+  const sortLbl = {past72: "last 72 hours at summit", next72: "next 72 hours at summit", next7d: "next 7 days at summit", base: "current base depth"}[key];
+  setStatus(`Sorted by ${sortLbl}. Updated ${t}.${roadsTxt}`);
 }
 
 // ---------- wiring ----------

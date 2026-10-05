@@ -12,6 +12,7 @@ Panorama and WinSport, with roads measured from the Hwy 1 / Hwy 22 interchange.
     index.html
     README.md
     scripts/fetch_roads.py
+    scripts/fetch_snow.py
     .github/workflows/deploy.yml
 
 ## Setup
@@ -42,6 +43,28 @@ Panorama and WinSport, with roads measured from the Hwy 1 / Hwy 22 interchange.
 - GitHub disables scheduled workflows in public repos after 60 days with no repo activity.
   It emails you first; re-enable from the Actions tab. Expect this over summer.
 - Run the fetcher locally: `AB511_KEY=yourkey python3 scripts/fetch_roads.py roads.json`
+
+## Hills
+
+Nakiska, Norquay, Lake Louise, Sunshine, Fernie, Panorama, WinSport, plus Marmot Basin
+(Jasper) and Nitehawk (Grande Prairie) for the kids' races. Marmot routes via the Icefields
+Parkway; Nitehawk via Hwy 2 North and Hwy 43. Nitehawk is too small for OnTheSnow, so it
+shows weather and roads but no base-depth line (by design).
+
+## Base depth (snow.json)
+
+`scripts/fetch_snow.py` pulls each resort's OnTheSnow snow-report page and writes
+`snow.json` with base/summit depth, surface, and status. The page shows it under
+each hill and adds a "Base depth" sort so you can see which hill is in best shape.
+
+- Depths only exist in season. Every hill reads "not reported" or "resort closed"
+  until they open (~Nov 1), so the numbers can't be verified before then.
+- Fail-safe: a depth shows only when parsed with a known unit (cm/inches), else the
+  page says "not reported". It never displays a guessed number or wrong unit.
+- WinSport usually has no reported depth (man-made snow); that's expected.
+- UNVERIFIED until opening day. When the first hill reports a real depth, sanity-check
+  it against onthesnow.com and, if the field mapping needs a tweak, adjust fetch_snow.py.
+- Run locally: `python3 scripts/fetch_snow.py snow.json`
 
 ## Roadmap
 

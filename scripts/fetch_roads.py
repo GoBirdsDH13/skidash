@@ -54,6 +54,18 @@ SEGMENTS = {
                        "lat": (49.50, 49.80), "lon": (-114.18, -113.38), "prov": ["AB"]},
     "hwy3_crowsnest": {"label": "Hwy 3, Lundbreck to Fernie", "route": "3",
                        "lat": (49.40, 49.75), "lon": (-115.12, -114.15), "prov": ["AB", "BC"]},
+    # Jasper / Marmot Basin via the Icefields Parkway (reuses Hwy 1 to Lake Louise)
+    "hwy93n_icefields": {"label": "Hwy 93 North, Icefields Parkway to Jasper", "route": "93",
+                       "lat": (51.40, 52.90), "lon": (-118.20, -115.95), "prov": ["AB"]},
+    "hwy93a_marmot":  {"label": "Hwy 93A to Marmot Basin", "route": "93A",
+                       "lat": (52.68, 52.92), "lon": (-118.15, -117.88), "prov": ["AB"]},
+    # Grande Prairie / Nitehawk via QEII north and Hwy 43
+    "hwy2_north":     {"label": "Hwy 2 north (QEII) to Hwy 43", "route": "2",
+                       "lat": (51.00, 53.60), "lon": (-114.10, -113.30), "prov": ["AB"]},
+    "hwy43_gp":       {"label": "Hwy 43 to Grande Prairie", "route": "43",
+                       "lat": (53.50, 55.30), "lon": (-119.10, -113.90), "prov": ["AB"]},
+    "hwy40_gp":       {"label": "Hwy 40 south to Nitehawk", "route": "40",
+                       "lat": (54.90, 55.12), "lon": (-118.95, -118.55), "prov": ["AB"]},
 }
 
 # Each hill lists one or more route options; each option is an ordered list of segments.
@@ -68,11 +80,19 @@ HILL_ROUTES = {
     "Fernie":      [{"name": "Via Hwy 22", "segments": ["hwy22_south", "hwy3_crowsnest"]},
                     {"name": "Via Hwy 2 and Fort Macleod", "segments": ["hwy1_east", "hwy2_south",
                                                    "hwy3_macleod", "hwy3_crowsnest"]}],
+    "Marmot Basin": [{"name": "Hwy 1 and Icefields Parkway",
+                     "segments": ["hwy1_to40", "hwy1_40_banff", "hwy1_banff_sun",
+                                  "hwy1_sun_castle", "hwy1_castle_ll",
+                                  "hwy93n_icefields", "hwy93a_marmot"]}],
+    "Nitehawk":    [{"name": "Hwy 2 North and Hwy 43",
+                     "segments": ["hwy2_north", "hwy43_gp", "hwy40_gp"]}],
     "WinSport":    [{"name": "Hwy 1 east", "segments": ["hwy1_east"]}],
 }
 
 # "Hwy 1", "HWY-24", "Highway 93", "Route 3". The lookahead stops "1A" matching "1".
 ROUTE_RE = re.compile(r"(?:hwy|highway|route)[\s.\-]*0*(\d+)(?![\dA-Za-z])", re.IGNORECASE)
+# Lettered highways kept distinct (93A, 1A, 22X) so 93A never matches plain 93.
+ROUTE_LETTER_RE = re.compile(r"(?:hwy|highway|route)[\s.\-]*0*(\d+[A-Za-z])(?![\dA-Za-z])", re.IGNORECASE)
 BC_CLOSED_RE = re.compile(r"\broad closed\b|\bhighway closed\b|closed in both directions|full closure",
                           re.IGNORECASE)
 BAD_COND_RE = re.compile(r"snow|ice|icy|slush|covered|frost|drift|closed|poor", re.IGNORECASE)
@@ -85,6 +105,7 @@ def routes_in(*texts):
             continue
         t = str(t)
         found.update(ROUTE_RE.findall(t))
+        found.update(x.upper() for x in ROUTE_LETTER_RE.findall(t))
         if "trans-canada" in t.lower() or "trans canada" in t.lower():
             found.add("1")
     return found
@@ -124,7 +145,8 @@ def in_box(seg, lat, lon):
 def match_segments(routes, points):
     hits = []
     for key, seg in SEGMENTS.items():
-        if seg["route"] in routes and any(in_box(seg, la, lo) for la, lo in points):
+        seg_routes = seg["route"] if isinstance(seg["route"], (list, tuple)) else (seg["route"],)
+        if any(r in routes for r in seg_routes) and any(in_box(seg, la, lo) for la, lo in points):
             hits.append(key)
     return hits
 
