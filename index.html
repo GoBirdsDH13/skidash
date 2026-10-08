@@ -65,7 +65,7 @@ button:focus-visible, summary:focus-visible { outline: 2px solid var(--focus); o
 /* column header */
 .cols, summary {
   display: grid;
-  grid-template-columns: minmax(120px, 1.6fr) repeat(3, minmax(64px, 1fr)) minmax(92px, 1.1fr);
+  grid-template-columns: minmax(110px, 1.5fr) repeat(3, minmax(58px, 1fr)) minmax(56px, 0.85fr) minmax(88px, 1.05fr);
   align-items: center; gap: 8px;
 }
 .cols { padding: 0 16px 6px; color: var(--muted); font-size: 13px; }
@@ -78,6 +78,8 @@ summary::-webkit-details-marker { display: none; }
 .name small { display: block; font: 400 13px Barlow, sans-serif; color: var(--muted); margin-top: 2px; }
 .num { text-align: right; font: 700 30px/1 "Barlow Condensed", sans-serif; font-variant-numeric: tabular-nums; }
 .num i { font-style: normal; font-size: 14px; font-weight: 600; color: var(--muted); margin-left: 1px; }
+.num.base > span:first-child { color: var(--ink); }
+.num.base .na { color: var(--faint); font-weight: 500; }
 .now { text-align: right; font-size: 14px; color: var(--muted); line-height: 1.25; }
 .now b { display: block; font: 600 20px "Barlow Condensed", sans-serif; color: var(--ink); }
 .sorted { box-shadow: inset 0 -3px 0 currentColor; padding-bottom: 2px; }
@@ -134,8 +136,9 @@ footer a { color: inherit; }
 
 @media (max-width: 620px) {
   h1 { font-size: 36px; }
-  .cols, summary { grid-template-columns: minmax(0, 1.5fr) repeat(3, minmax(44px, 1fr)); }
+  .cols, summary { grid-template-columns: minmax(0, 1.3fr) repeat(4, minmax(36px, 1fr)); }
   .cols span:last-child, summary .now { display: none; }
+  .num.base { font-size: 20px; }
   .num { font-size: 24px; }
   .name { font-size: 20px; }
   .detail .nowline { display: block; }
@@ -163,7 +166,7 @@ footer a { color: inherit; }
   </header>
 
   <div class="cols" aria-hidden="true">
-    <span>Hill</span><span>Last 72h</span><span>Next 72h</span><span>Next 7 days</span><span>Summit now</span>
+    <span>Hill</span><span>Last 72h</span><span>Next 72h</span><span>Next 7 days</span><span>Base</span><span>Summit now</span>
   </div>
   <div id="list"></div>
 
@@ -327,6 +330,19 @@ function setStatus(t) { document.getElementById("status").textContent = t; }
 function snowCell(v, key) {
   const cls = state.sort === key ? " sorted" : "";
   return `<span class="num"><span class="${cls.trim()}" style="color:${snowColor(v)}">${fmt0(v)}</span><i>cm</i></span>`;
+}
+
+// Resort-reported base depth, as an at-a-glance column cell. Shows a dash when
+// no depth is reported (hill closed or preseason) rather than a guessed number.
+function baseCell(name) {
+  const r = state.snow && state.snow.resorts && state.snow.resorts[name];
+  const cm = r && typeof r.base_cm === "number" ? r.base_cm : null;
+  if (cm === null) {
+    const why = r && r.status && /clos/i.test(r.status) ? "resort closed" : "not reported";
+    return `<span class="num base"><span class="na" title="${esc(why)}">–</span></span>`;
+  }
+  const cls = state.sort === "base" ? "sorted" : "";
+  return `<span class="num base"><span class="${cls}">${fmt0(cm)}</span><i>cm</i></span>`;
 }
 
 function stripHtml(s) {
@@ -496,6 +512,7 @@ function hillHtml(h) {
       ${snowCell(top && top.past72, "past72")}
       ${snowCell(top && top.next72, "next72")}
       ${snowCell(top && top.next7d, "next7d")}
+      ${baseCell(h.name)}
       <span class="now"><b>${nowTxt}</b>${esc(cond)}${cond && wind ? "<br>" : ""}${esc(wind)}</span>
     </summary>
     <div class="detail">
